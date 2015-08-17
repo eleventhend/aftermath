@@ -3,7 +3,6 @@ import random
 import itertools
 import argparse
 
-
 import pandas as pd
 import numpy as np
 
@@ -17,20 +16,31 @@ def roller(pips):
     result = draw[0]
     return result
 
-def encounter(maneuver, pool, die, success):
+def encounter(m, p, rerolls, die, success):
     """
     encounter processes a single rool of a dice pool comparing it against the 
         outcomes needed to perform a desired maneuver
     """
-    for i in ['combat', 'social', 'skill', 'wild']:
-        for k in xrange(0, pool['count'].loc[i]):
-            roll = roller(die)
-            maneuver['count'].loc[i, roll] += 1
-    for j in xrange(0, len(maneuver)):
-        if maneuver['count'][j] >= maneuver['required'][j]:
-            maneuver['result'][j] = 1
-    if maneuver.sum()[2] == (die*3):
-        success += 1
+    pool = p.copy()
+    maneuver = m.copy()
+    for x in xrange(0, (rerolls+1)):
+        for i in ['combat', 'social', 'skill', 'wild']:
+            for k in xrange(0, pool['count'].loc[i]):
+                roll = roller(die)
+                maneuver['count'].loc[i, roll] += 1
+        pool['count'] = 0
+        for j in xrange(0, len(maneuver)):
+            if maneuver['count'][j] == maneuver['required'][j]:
+                maneuver['result'][j] = 1
+            elif maneuver['count'][j] >= maneuver['required'][j]:
+                maneuver['result'][j] = 1
+                pool['count'][j/die] += (maneuver['count'][j] - 
+                    maneuver['required'][j])
+                maneuver['count'][j] = maneuver['required'][j]
+        #wizardry below
+        if maneuver.sum()[2] == (die*3):
+            success += 1
+            return success
     return success
 
 """
@@ -56,30 +66,32 @@ die_type should be a hierarchical index on one side of color
     (not clear by mechanics which side yet)
 
 Create dice pool & populate it with available dice (=player default dice pool)
-'count' - the number of dice available in pool
-'required' - the number of dice of that pip required for a maneuver
+    'count' - the number of dice available in pool
 """
 pool = pd.DataFrame(index=('combat', 'social', 'skill', 'wild'), 
     columns=('count',))
 pool['count'] = (4, 1, 3, 0)
 d_type = ('combat', 'social', 'skill')
 d_pips = range(1, die+1)
+
+"""
+Create maneuver & populate with maneuver requirements
+    'required' - the number of dice of that pip required for a maneuver
+"""
 midx = pd.MultiIndex.from_tuples(list(itertools.product(d_type, d_pips)))
 default_maneuver = pd.DataFrame(0, index=midx, 
     columns=('required','count','result'))
 
-inertial_purge = default_maneuver
-inertial_purge['required'].loc['combat', 2] = 0
+inertial_purge = default_maneuver.copy()
+inertial_purge['required'].loc['combat', 1] = 1
 inertial_purge['required'].loc['combat', 6] = 2
-inertial_purge['required'].loc['skill', 6] = 2
+inertial_purge['required'].loc['skill', 6] = 1
 
 #init success as 0 in decimal form
 success = 0.0
 #run samples
 for x in xrange(0, sample):
-    inertial_purge['count'] = 0
-    inertial_purge['result'] = 0
-    success = encounter(inertial_purge, pool, die, success)
+    success = encounter(inertial_purge, pool, rerolls, die, success)
 
 print ("%(y)s/%(s)s succeeded after %(r)s rerolls" 
     %{"y": int(success), "s": sample, "r": rerolls})
